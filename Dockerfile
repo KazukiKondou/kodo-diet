@@ -3,7 +3,8 @@ RUN apt-get update && apt-get install -y openssl ca-certificates && apt-get clea
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
-RUN npm ci
+# lock生成npmとビルド環境のnpm差異に依存しないよう install を使用
+RUN npm install --no-audit --no-fund
 COPY . .
 RUN npm run build
 ENV NODE_ENV=production
