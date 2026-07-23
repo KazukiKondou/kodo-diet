@@ -1,0 +1,213 @@
+// kodo-diet データモデル
+// 長期運用・拡張性を重視し、記録系はすべて追記型で保持する。
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// 認証（Auth.js / NextAuth Prisma アダプタ標準モデル）
+// ─────────────────────────────────────────────
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String? // アイコン画像URL（iconType = PHOTO のとき）
+
+  // アイコン設定
+  iconType  IconType @default(EMOJI)
+  iconEmoji String   @default("🍫") // 権利フリー絵文字
+
+  // 身体プロフィール（初回一度きり入力）
+  heightCm  Float?
+  sex       Sex?
+  birthDate DateTime? // 年齢は生年月日から算出（時間経過で自動更新）
+
+  // 目標
+  goalWeightKg Float?
+  declaration  String? @db.Text // 目標宣言（ダッシュボード表示用の短い文章）
+
+  // 見た目設定
+  heatmapColor String @default("brown") // ヒートマップ配色プリセットキー
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts    Account[]
+  sessions    Session[]
+  weights     WeightEntry[]
+  workoutLogs WorkoutLog[]
+  videos      WorkoutVideo[]
+  mealPhotos  MealPhoto[]
+  bodyPhotos  BodyPhoto[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─────────────────────────────────────────────
+// 体重・体組成
+// ─────────────────────────────────────────────
+model WeightEntry {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @db.Date // 記録日（1日1件）
+  weightKg  Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+// ─────────────────────────────────────────────
+// 運動記録
+// ─────────────────────────────────────────────
+enum ExerciseMetric {
+  REPS // 回数のみ（例: 腹筋）
+  WEIGHT_REPS // 重量 × 回数（例: ベンチプレス）
+  TIME // 時間（例: プランク・ランニング）
+  DISTANCE // 距離（例: ランニング距離）
+}
+
+// 種目カタログ（プルダウン用）。DB管理で将来ユーザー追加も可能。
+model ExerciseType {
+  id        String         @id @default(cuid())
+  name      String
+  category  String // 部位/カテゴリ（胸/背中/脚/有酸素 など）
+  metric    ExerciseMetric
+  isDefault Boolean        @default(true)
+  ownerId   String? // 将来のユーザー追加種目用（nullなら共通）
+  sortOrder Int            @default(0)
+
+  logs WorkoutLog[]
+
+  @@unique([name, ownerId])
+}
+
+// 参照した動画（リンク＋題名）。累積回数は WorkoutLog 件数で集計。
+model WorkoutVideo {
+  id        String   @id @default(cuid())
+  userId    String
+  url       String
+  title     String // デフォルトは動画タイトル（YouTube oEmbed から取得）
+  createdAt DateTime @default(now())
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs WorkoutLog[]
+
+  @@unique([userId, url])
+  @@index([userId])
+}
+
+model WorkoutLog {
+  id             String   @id @default(cuid())
+  userId         String
+  date           DateTime @db.Date
+  exerciseTypeId String
+
+  // 種目メトリクスに応じて使う項目（未使用はnull）
+  reps        Int?
+  weightKg    Float?
+  durationSec Int?
+  distanceM   Float?
+  note        String?
+
+  // 動画を見てやった場合の関連
+  videoId String?
+
+  createdAt DateTime @default(now())
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exerciseType ExerciseType  @relation(fields: [exerciseTypeId], references: [id])
+  video        WorkoutVideo? @relation(fields: [videoId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([videoId])
+}
+
+// ─────────────────────────────────────────────
+// 食事記録・共有
+// ─────────────────────────────────────────────
+model MealPhoto {
+  id        String    @id @default(cuid())
+  userId    String
+  imagePath String // 保存先（ストレージ抽象のキー）
+  thumbPath String
+  caption   String?
+  eatenAt   DateTime  @default(now()) // 食べた/撮った時刻
+  sharedAt  DateTime? // 共有フィードに出した時刻（null=非共有）
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eatenAt])
+  @@index([sharedAt])
+}
+
+// ─────────────────────────────────────────────
+// 体の記録（任意・非公開）
+// ─────────────────────────────────────────────
+model BodyPhoto {
+  id        String   @id @default(cuid())
+  userId    String
+  imagePath String
+  thumbPath String
+  note      String?
+  takenAt   DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, takenAt])
+}
+
+enum Sex {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum IconType {
+  EMOJI
+  PHOTO
+}
