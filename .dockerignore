@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+uploads
+coverage
+.env
+.env.*
+!.env.example
+.dev-magic-links.json
+npmcache
+*.log
