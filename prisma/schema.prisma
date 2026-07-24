@@ -18,6 +18,7 @@ model User {
   emailVerified DateTime?
   name          String?
   image         String? // アイコン画像URL（iconType = PHOTO のとき）
+  passwordHash  String? // email+password 認証用（bcrypt）
 
   // アイコン設定
   iconType  IconType @default(EMOJI)
